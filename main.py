@@ -1,12 +1,7 @@
 from email.policy import default
-from glob import glob
-import imp
 import luigi
-import csv
 import pandas as pd
 #import ApiRequests
-
-import luigi
 import psycopg2
 import luigi.contrib.postgres
 from contextlib import contextmanager
@@ -184,7 +179,7 @@ class do_query_example(luigi.Task):
 
 class do_query_example_quick(luigi.Task):
     def requires(self):
-        return b4tPostGresQueryQuick(query="SELECT devicename, databytes, datatime, devicetype_id FROM device",code=39)
+        return b4tPostGresQueryQuick(query="SELECT devicename, databytes, datatime, devicetype_id FROM device",code=19)
     
     def run(self):
         with self.input().open() as rows:
@@ -196,7 +191,7 @@ class do_query_example_quick(luigi.Task):
 #It does not use specific luigi postgres modules instead implements the behaviour manually
 #This can be a fallback for very quick and dirty queries of a bespoke nature that need repeating: 
 #For example this one queries some specific stuff then saves it as a dataframe.
-#Would be best used if we have very complex queries, or even multiple queries
+#Would be best used if we have very complex queries, or even multiple queries required in the same task
 class query_postgres_example(luigi.Task):
     def output(self):
         # the output will be a .csv file
