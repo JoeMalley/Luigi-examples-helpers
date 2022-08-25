@@ -1,10 +1,14 @@
+from datetime import datetime
 from email.policy import default
+from fileinput import filename
+from sqlite3 import Timestamp
 import luigi
 import pandas as pd
 #import ApiRequests
 import psycopg2
 import luigi.contrib.postgres
 from contextlib import contextmanager
+import time
 
 #TODO examples that
 #connect to api
@@ -83,8 +87,16 @@ class edit_df_resave_example(luigi.Task):
         df_out.to_csv(self.output().path)      
 
 
-# A b4t query class using the postgres module, requires the b4tPostGresTarget
-class b4tPostGresQuery(luigi.contrib.postgres.PostgresQuery):
+
+
+
+
+
+
+# --- Postgres Queries ---
+
+# A b4t query class using the postgres module, that modifies the behaviour of the PostgresQuery class to be slightly more useful
+class b4t_postgres_query(luigi.contrib.postgres.PostgresQuery):
     host = luigi.Parameter()
     database = luigi.Parameter()
     user = luigi.Parameter()
@@ -111,7 +123,7 @@ class b4tPostGresQuery(luigi.contrib.postgres.PostgresQuery):
         connection.close()
 
     def output(self):
-        return b4tPostGresTarget(
+        return b4t_postgres_target(
             host=self.host,
             database=self.database,
             user=self.user,
@@ -121,8 +133,10 @@ class b4tPostGresQuery(luigi.contrib.postgres.PostgresQuery):
             rows=self.rows
         )
 
-#A version of the query task, but uses global params for connection and auth (so we can keep passwords and stuff out of git)
-class b4tPostGresQueryQuick(luigi.contrib.postgres.PostgresQuery):
+#A subclass of the generic query that uses global params instead
+# Many uses for such thing, such as a query class with hardcoded values, or one that asks for proper auth e.t.c
+#Or could make all parameters command line passed instead for a fully customisable boilerplate class
+class b4t_postgres_queryQuick(b4t_postgres_query):
     host = GlobalParams().host
     database = GlobalParams().database
     user = GlobalParams().user
@@ -131,33 +145,9 @@ class b4tPostGresQueryQuick(luigi.contrib.postgres.PostgresQuery):
     query = luigi.Parameter()
     rows = []
     code = luigi.IntParameter()
-    def run(self):
-        connection = self.output().connect()
-        cursor = connection.cursor()
-        sql = self.query
-        cursor.execute(sql)
 
-        #Extra behaviour added in this subclass
-        for row in cursor.fetchall():
-            print("APPENDING A ROW")
-            self.rows.append(row)
-        #
-
-        self.output().touch(connection)
-        connection.commit()
-        connection.close()
-
-    def output(self):
-        return b4tPostGresTarget(
-            host=self.host,
-            database=self.database,
-            user=self.user,
-            password=self.password,
-            table=self.table,
-            update_id=self.update_id,
-            rows=self.rows
-        )
-class b4tPostGresTarget(luigi.contrib.postgres.PostgresTarget):
+#Custom luigi target class that contains the data that was retrieved in the query
+class b4t_postgres_target(luigi.contrib.postgres.PostgresTarget):
     rows = []
     def __init__(self, host, database, user, password, table, update_id, port=None, rows=[]):
         super().__init__(host, database, user, password, table, update_id, port)
@@ -167,25 +157,33 @@ class b4tPostGresTarget(luigi.contrib.postgres.PostgresTarget):
     def open(self):
         yield self.rows
     
-
+#An example of using the B4TQuery Subclasses to query the db
 class do_query_example(luigi.Task):
     def requires(self):
-        return b4tPostGresQuery(host="localhost",database="db_b4t",user="b4tuser",password="b4tuser1",table="device",query="SELECT devicename, databytes, datatime, devicetype_id FROM device",code=44)
+        return b4t_postgres_query(host="localhost",database="db_b4t",user="b4tuser",password="b4tuser1",table="device",query="SELECT devicename, databytes, datatime, devicetype_id FROM device",code=44)
     
     def run(self):
         with self.input().open() as rows:
             print(rows)
             #do whatever we want with the data
 
+#An example of doing the quick version of the query
 class do_query_example_quick(luigi.Task):
     def requires(self):
-        return b4tPostGresQueryQuick(query="SELECT devicename, databytes, datatime, devicetype_id FROM device",code=19)
+        return b4t_postgres_queryQuick(query="SELECT devicename, databytes, datatime, devicetype_id FROM device",code=9)
     
     def run(self):
         with self.input().open() as rows:
             print(rows)
             #do whatever we want with the data
 
+
+
+
+
+
+
+# --- Customisable generic query function - does not depend on any parent classes other than luigi baseTask ---
 
 # This task querys a postgres database and then saves the files as a dataframe
 #It does not use specific luigi postgres modules instead implements the behaviour manually
@@ -221,3 +219,76 @@ class query_postgres_example(luigi.Task):
         df = pd.DataFrame(data=rows,columns=['devicename','databytes','datatime','devicetype_id'])
         print(df)
         df.to_csv(self.output().path,index_label='index')
+
+# --- Specific Data saving in postgres ---
+
+#An example of a task that saves the file that is required for the specific save task
+class save_DF_example_test(luigi.Task):
+    def output(self):
+        return luigi.LocalTarget()
+    
+    def run(self):
+        dict ={
+            "id" : [3],
+            "devicename": ["8888"],
+            "databytes": [12],
+            "datatime" : [datetime.now()],
+            "devicetype_id" : [1],
+            "codec_id":[15],
+            "location_id" : [1]
+        }
+        df_out = pd.DataFrame(data=dict)
+        df_out.to_csv(self.output().path,index=False)
+
+#A Task that takes in a CSV file as input and uses it to save in a specific table, modifications can be made to how the input is processed
+#However it will probably be best used for specific save functions that depend on other specific tasks
+class b4t_copy_to_db_specific(luigi.contrib.postgres.CopyToTable):
+    host = GlobalParams().host
+    database = GlobalParams().database
+    user = GlobalParams().user
+    password = GlobalParams().password
+    table = 'device'
+    def requires(self):
+        return save_DF_example_test()
+    
+    #Override this function to change input format - this one takes in CSVs that specifiy a db id
+    #TODO make it accept none values
+    def rows(self):
+        """
+        Return/yield tuples or lists corresponding to each row to be inserted.
+        """
+        with self.input().open('r') as fobj:
+            self.columns = fobj[0].strip('\n').split(",")
+            for line in fobj:
+                if(line.strip('\n').split(",") != self.columns):
+                    yield line.strip('\n').split(',')
+
+
+# --- Generic saving data in postgres ---
+
+
+#A more generic save function that is completely configured via params, 
+#this task can be depended on to ensure data is in the DB before being run for example
+class b4t_copy_to_db_generic(luigi.contrib.postgres.CopyToTable):
+    host = GlobalParams().host
+    database = GlobalParams().database
+    user = GlobalParams().user
+    password = GlobalParams().password
+    table = 'device'
+    rowArray = luigi.ListParameter()
+    columns = luigi.ListParameter()
+    def rows(self):
+        for i in self.rowArray:
+            yield i
+
+#A simple task that calls the generic save taks
+class test_caller(luigi.Task):
+    def requires(self):
+        time1 = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        return b4t_copy_to_db_generic(columns = ['id','devicename','databytes','datatime','devicetype_id','codec_id','location_id'],
+        rowArray=
+        [
+            [5,"9982",12,time1,1,15,1],
+            [6,"1232",14,time1,1,15,2]
+        ]
+        )
