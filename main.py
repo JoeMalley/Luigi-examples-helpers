@@ -180,6 +180,7 @@ class delete_db_entry_example(luigi.Task):
         return b4t_postgres_queryQuick(query="DELETE FROM device WHERE id=6",code=9)
 
 
+#A simple update task that updates a value in the db
 class update_db_entry_example(luigi.Task):
     def requires(self):
         return b4t_postgres_queryQuick(query="UPDATE device SET devicename='edited' WHERE id=5",code=5)
@@ -284,7 +285,8 @@ class b4t_copy_to_db_generic(luigi.contrib.postgres.CopyToTable):
         for i in self.rowArray:
             yield i
 
-#A simple task that calls the generic save taks
+#A simple task that calls the generic save task
+#Easier to use than a generic query since we can define the data as lists
 class test_caller(luigi.Task):
     def requires(self):
         time1 = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
