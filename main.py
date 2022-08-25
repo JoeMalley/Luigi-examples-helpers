@@ -1,7 +1,8 @@
+import code
 from datetime import datetime
 from email.policy import default
 from fileinput import filename
-from sqlite3 import Timestamp
+from sqlite3 import ProgrammingError, Timestamp
 import luigi
 import pandas as pd
 #import ApiRequests
@@ -9,11 +10,6 @@ import psycopg2
 import luigi.contrib.postgres
 from contextlib import contextmanager
 import time
-
-#TODO examples that
-#connect to api
-#use postgres
-#save file to input file
 
 class GlobalParams(luigi.Config):
     url = luigi.Parameter(default="localhost:8080")
@@ -24,6 +20,8 @@ class GlobalParams(luigi.Config):
     user = luigi.Parameter(default="b4tuser")
     password = luigi.Parameter(default="b4tuser1")
 
+
+#--- dataframe examples ----
 class save_DF_example(luigi.Task):
     def output(self):
         return luigi.LocalTarget('report_data.csv')
@@ -90,10 +88,8 @@ class edit_df_resave_example(luigi.Task):
 
 
 
-
-
-
 # --- Postgres Queries ---
+#TODO think of how we will change code, if the query changes we wont need to, but needs testing
 
 # A b4t query class using the postgres module, that modifies the behaviour of the PostgresQuery class to be slightly more useful
 class b4t_postgres_query(luigi.contrib.postgres.PostgresQuery):
@@ -113,10 +109,11 @@ class b4t_postgres_query(luigi.contrib.postgres.PostgresQuery):
         cursor.execute(sql)
 
         #Extra behaviour added in this subclass
-        for row in cursor.fetchall():
-            print("APPENDING A ROW")
-            self.rows.append(row)
-        #
+        try:
+            for row in cursor.fetchall():
+                self.rows.append(row)
+        except psycopg2.ProgrammingError:
+            print("No row data")
 
         self.output().touch(connection)
         connection.commit()
@@ -177,11 +174,15 @@ class do_query_example_quick(luigi.Task):
             print(rows)
             #do whatever we want with the data
 
+#A simple task that deletes a value
+class delete_db_entry_example(luigi.Task):
+    def requires(self):
+        return b4t_postgres_queryQuick(query="DELETE FROM device WHERE id=6",code=9)
 
 
-
-
-
+class update_db_entry_example(luigi.Task):
+    def requires(self):
+        return b4t_postgres_queryQuick(query="UPDATE device SET devicename='edited' WHERE id=5",code=5)
 
 # --- Customisable generic query function - does not depend on any parent classes other than luigi baseTask ---
 
@@ -222,7 +223,7 @@ class query_postgres_example(luigi.Task):
 
 # --- Specific Data saving in postgres ---
 
-#An example of a task that saves the file that is required for the specific save task
+#An example of a task that saves the file that is required for the specific copy task
 class save_DF_example_test(luigi.Task):
     def output(self):
         return luigi.LocalTarget()
@@ -242,6 +243,7 @@ class save_DF_example_test(luigi.Task):
 
 #A Task that takes in a CSV file as input and uses it to save in a specific table, modifications can be made to how the input is processed
 #However it will probably be best used for specific save functions that depend on other specific tasks
+#Will be useful in cases where we definetly only want to run the SQL once
 class b4t_copy_to_db_specific(luigi.contrib.postgres.CopyToTable):
     host = GlobalParams().host
     database = GlobalParams().database
@@ -269,12 +271,13 @@ class b4t_copy_to_db_specific(luigi.contrib.postgres.CopyToTable):
 
 #A more generic save function that is completely configured via params, 
 #this task can be depended on to ensure data is in the DB before being run for example
+#It also does not depend on any other tasks
 class b4t_copy_to_db_generic(luigi.contrib.postgres.CopyToTable):
     host = GlobalParams().host
     database = GlobalParams().database
     user = GlobalParams().user
     password = GlobalParams().password
-    table = 'device'
+    table = luigi.Parameter()
     rowArray = luigi.ListParameter()
     columns = luigi.ListParameter()
     def rows(self):
@@ -290,5 +293,11 @@ class test_caller(luigi.Task):
         [
             [5,"9982",12,time1,1,15,1],
             [6,"1232",14,time1,1,15,2]
-        ]
+        ],
+        table = 'device'
         )
+
+
+
+#TODO
+#Update and delete queries
