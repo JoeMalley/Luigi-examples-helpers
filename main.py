@@ -415,7 +415,14 @@ class initial_device_count(luigi.Task):
     def run(self):
         #step 1 get initial devices
         #step 2 count the devices
-        pass
+        df_initial = pl.scan_csv(self.input().path).select(
+            pl.col("DeviceID").unique().alias("device_id"),
+        ).collect()
+
+        count = df_initial.select(
+            pl.col("device_id").count().alias("num_devices")
+        ).get_column("num_devices")[0]
+        
 #TODO For actual reports
 #better params - such as cli ones or globals
 #for date and platform
