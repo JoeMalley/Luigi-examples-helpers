@@ -8,6 +8,7 @@ luigi = "*"
 wheel = "*"
 pandas = "*"
 postgres = "*"
+polars = "*"
 
 [dev-packages]
 

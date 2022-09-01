@@ -10,6 +10,7 @@ import psycopg2
 import luigi.contrib.postgres
 from contextlib import contextmanager
 import time
+import polars as pl
 
 class GlobalParams(luigi.Config):
     url = luigi.Parameter(default="localhost:8080")
@@ -22,15 +23,13 @@ class GlobalParams(luigi.Config):
 
 
 #--- dataframe examples ----
+
+#A simple task that creates a new data frame and saves it to a file
 class save_DF_example(luigi.Task):
     def output(self):
         return luigi.LocalTarget('report_data.csv')
     
     def run(self):
-        #apiServer = ApiRequests()
-        #token = apiServer.connect(GlobalParams.url, GlobalParams.user, GlobalParams.password)
-
-        #Get the data above from api or something
         dict ={
             "col1": ["1-1","1-2","1-3"],
             "col2": ["2-1","2-2","2-3"]
@@ -38,6 +37,7 @@ class save_DF_example(luigi.Task):
         df_out = pd.DataFrame(data=dict)
         df_out.to_csv(self.output().path,index=True,index_label="index")
 
+#A task that requires the previous one
 class edit_df_example(luigi.Task):
 
     def requires(self):
@@ -300,6 +300,122 @@ class test_caller(luigi.Task):
         )
 
 
+class collect_data(luigi.Task):
+    def output(self):
+        return luigi.LocalTarget('collectedData.csv')
 
-#TODO
-#Update and delete queries
+    def requires(self):
+        #Get all decoded msgs within a time frame
+        return b4t_postgres_queryQuick(query="SELECT * FROM decoded_msg",code=24)
+
+    def run(self):
+        #sort the decoded messages and get the device info
+        with self.input().open() as rows:
+            devIds = []
+            timestamps = []
+            epochs = []
+            rawDatas = []
+            msgTypes = []
+            msgSeq = []
+            readings = []
+            indexes = []
+            FLOW1s = []
+            FLOW2s = []
+            FLOW3s = []
+            FLOW4s = []
+            FLOW5s = []
+            FLOW6s = []
+            FLOW7s = []
+            FLOW8s = []
+            xtimes = []
+            MINFLOWs = []
+            MAXFLOWs = []
+            for i in rows:
+                devIds.append(i[2]['devicename'])
+                timestamps.append(i[1])
+                epochs.append(i[2]['timestamp'])
+                rawDatas.append(i[2]['data'])
+                msgTypes.append(i[2]['decoded_data']['msgType'])
+                msgSeq.append(i[2]['decoded_data']['msgSeq'])
+                readings.append(i[2]['decoded_data']['readings'])
+                indexes.append(i[2]['decoded_data']['index'])
+                FLOW1s.append(i[2]['decoded_data']['FLOW1'])
+                FLOW2s.append(i[2]['decoded_data']['FLOW2'])
+                FLOW3s.append(i[2]['decoded_data']['FLOW3'])
+                FLOW4s.append(i[2]['decoded_data']['FLOW4'])
+                FLOW5s.append(i[2]['decoded_data']['FLOW5'])
+                FLOW6s.append(i[2]['decoded_data']['FLOW6'])
+                FLOW7s.append(i[2]['decoded_data']['FLOW7'])
+                FLOW8s.append(i[2]['decoded_data']['FLOW8'])
+                xtimes.append(i[2]['decoded_data']['xtime'])
+                MINFLOWs.append(i[2]['decoded_data']['MINFLOW'])
+                MAXFLOWs.append(i[2]['decoded_data']['MAXFLOW'])
+
+            
+            new_df_dict = {
+                "DeviceID" : devIds,
+                "Timestamp" : timestamps,
+                "Epoch" : epochs,
+                "rawData" : rawDatas,
+                "msgType" : msgTypes,
+                "msgSeq" : msgSeq,
+                "readings" : readings,
+                "index" : indexes,
+                "FLOW1" : FLOW1s,
+                "FLOW2" : FLOW2s,
+                "FLOW3" : FLOW3s,
+                "FLOW4" : FLOW4s,
+                "FLOW5" : FLOW5s,
+                "FLOW6" : FLOW6s,
+                "FLOW7" : FLOW7s,
+                "FLOW8" : FLOW8s,
+                "xtime" : xtimes,
+                "MAXFLOW" : MAXFLOWs,
+                "MINFLOW" : MINFLOWs
+
+            }
+            df_out = pd.DataFrame(data=new_df_dict)
+            df_out.to_csv(self.output().path,index=False)
+
+def format_date(date: str) -> pl.datetime:
+    """Takes a string date and turns it into polars timestamp.
+
+    Args:
+        date (string): A date string e.g 2022-01-20
+
+    Returns:
+        pl.datetime: A polars datetime object
+    """
+    print(date)
+    datem = datetime.strptime(date, "%Y-%m-%d")
+    return pl.datetime(datem.year, datem.month, datem.day)
+
+class filter_dates(luigi.Task):
+    start_date = luigi.Parameter(default='2022-07-30')
+    end_date = luigi.Parameter(default='2022-08-30')
+    def requires(self):
+        return collect_data()
+
+    def output(self):
+        return luigi.LocalTarget("collectedData_filtered.csv")
+    def run(self):
+            
+        df_in = pl.scan_csv(self.input().path)
+        df_in = df_in.filter(
+            (pl.col("Timestamp") >= format_date(self.start_date))
+            & (pl.col("Timestamp") <= format_date(self.end_date))
+        )  # Filter the dataframe
+        df_in = df_in.unique()#some reason distinct does not work
+        df_in.collect().write_csv(self.output().path)
+
+class initial_device_count(luigi.Task):
+    def requires(self):
+        return filter_dates(luigi.Task)
+    
+    def run(self):
+        #step 1 get initial devices
+        #step 2 count the devices
+        pass
+#TODO For actual reports
+#better params - such as cli ones or globals
+#for date and platform
