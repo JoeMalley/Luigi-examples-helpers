@@ -1,6 +1,6 @@
 import code
 from datetime import datetime
-from email.policy import default
+from email.policy import default, strict
 from fileinput import filename
 from sqlite3 import ProgrammingError, Timestamp
 import luigi
@@ -306,7 +306,7 @@ class collect_data(luigi.Task):
 
     def requires(self):
         #Get all decoded msgs within a time frame
-        return b4t_postgres_queryQuick(query="SELECT * FROM decoded_msg",code=24)
+        return b4t_postgres_queryQuick(query="SELECT * FROM decoded_msg",code=17)
 
     def run(self):
         #sort the decoded messages and get the device info
@@ -409,12 +409,14 @@ class filter_dates(luigi.Task):
         df_in.collect().write_csv(self.output().path)
 
 class initial_device_count(luigi.Task):
+    start_date = luigi.Parameter(default='2022-07-30')
+    end_date = luigi.Parameter(default='2022-08-30')
     def requires(self):
-        return filter_dates(luigi.Task)
+        return filter_dates(start_date=self.start_date, end_date=self.end_date)
     
+    def output(self):
+        return luigi.LocalTarget("initial_device_count.txt")
     def run(self):
-        #step 1 get initial devices
-        #step 2 count the devices
         df_initial = pl.scan_csv(self.input().path).select(
             pl.col("DeviceID").unique().alias("device_id"),
         ).collect()
@@ -422,7 +424,48 @@ class initial_device_count(luigi.Task):
         count = df_initial.select(
             pl.col("device_id").count().alias("num_devices")
         ).get_column("num_devices")[0]
-        
+
+        with self.output().open("w") as file:
+            file.write(str(count))
+
+
+
+class get_clean_data(luigi.Task):
+    start_date = luigi.Parameter(default='2022-07-30')
+    end_date = luigi.Parameter(default='2022-08-30')
+    def requires(self):
+        return filter_dates(start_date=self.start_date, end_date=self.end_date) 
+
+    def output(self):
+        return luigi.LocalTarget("clean_data.csv")
+
+    def run(self):
+        (   
+            pl.scan_csv(self.input().path)
+            .filter(
+                (pl.col("readings") == 8)
+                & (pl.col("msgType") == 1)
+                & (pl.col("xtime") == 4)  # TODO: Support variable timeframes
+            )
+            .select(
+                [
+                    pl.col("DeviceID").str.strip().alias("device_id"),
+                    pl.col("Timestamp")
+                    .str.strptime(pl.Datetime, "%Y-%m-%dT%H:%M:%S",strict=False)
+                    .alias("timestamp"),
+                    pl.col("FLOW1").cast(pl.Int64),
+                    pl.col("FLOW2").cast(pl.Int64),
+                    pl.col("FLOW3").cast(pl.Int64),
+                    pl.col("FLOW4").cast(pl.Int64),
+                    pl.col("FLOW5").cast(pl.Int64),
+                    pl.col("FLOW6").cast(pl.Int64),
+                    pl.col("FLOW7").cast(pl.Int64),
+                    pl.col("FLOW8").cast(pl.Int64),
+                ]
+            )
+        ).collect().write_csv(self.output().path)
+
+    
 #TODO For actual reports
 #better params - such as cli ones or globals
 #for date and platform
