@@ -1,11 +1,10 @@
+from platform import platform
 import luigi
 import pandas as pd
-from luigi.contrib.external_program import ExternalProgramTask
 import polars as pl
 from helpers.luigi_postgres import *
 from helpers.data_report import *
 from helpers.luigi_generic import *
-import shlex
 from os import listdir
 from os.path import isfile, join
 import pyarrow
@@ -19,6 +18,13 @@ class GlobalParams(luigi.Config):
     user = luigi.Parameter(default="b4tuser")
     password = luigi.Parameter(default="b4tuser1")
 
+
+# python -m luigi --module main execute_reports --start-date='2022-09-01' --end-date='2022-09-08
+#TODO - Deploy on gimli
+#Daily recuring collect data task
+#Fix params
+#Clean imports
+#Automated email sending
 
 class collect_data_postgres(luigi.Task):
     def output(self):
@@ -99,9 +105,14 @@ class collect_data_postgres(luigi.Task):
             df_out.to_csv(self.output().path,index=False)
 
 class collect_data_bash(luigi.Task):
+    date_ran = luigi.Parameter()
+    platform = luigi.Parameter(default='srn')
+    username = luigi.Parameter(default='devops')
+    password = luigi.Parameter(default='rzBRWfBMh6NaccS')
+    platform_secret = luigi.Parameter(default='o8bO#$nN0xbOssbER15/a6!ZXDWdkSAV7@PKCl^mb&rUpGReaxHLgiyie23$')
     def requires(self):
         #TODO need to provide different params ie date to actually get it to run a 2nd time
-        return b4t_execute_shell_command(command="bash collect_data.sh srn devops rzBRWfBMh6NaccS 'o8bO#$nN0xbOssbER15/a6!ZXDWdkSAV7@PKCl^mb&rUpGReaxHLgiyie23$'")
+        return b4t_execute_shell_command(command=f"bash collect_data.sh {self.platform} {self.username} {self.password} {self.platform_secret}",date_ran=self.date_ran)
     
     def output(self):
         return luigi.LocalTarget("collectedData.csv")
@@ -123,13 +134,16 @@ class collect_data_bash(luigi.Task):
 class filter_dates(luigi.Task):
     start_date = luigi.Parameter(default='2022-09-01')
     end_date = luigi.Parameter(default='2022-09-30')
+    platform = luigi.Parameter(default='srn')
+    username = luigi.Parameter(default='devops')
+    password = luigi.Parameter(default='rzBRWfBMh6NaccS')
+    platform_secret = luigi.Parameter(default='o8bO#$nN0xbOssbER15/a6!ZXDWdkSAV7@PKCl^mb&rUpGReaxHLgiyie23$')
     def requires(self):
-        return collect_data_bash()
+        return collect_data_bash(date_ran=self.start_date,platform=self.platform,username=self.username,password=self.password,platform_secret=self.platform_secret)
 
     def output(self):
         return luigi.LocalTarget("collectedData_filtered.csv")
     def run(self):
-        print("FILTERTING THE DATES")
 
         df_in = pl.scan_csv(self.input().path)
         df_in = df_in.filter(
@@ -142,8 +156,12 @@ class filter_dates(luigi.Task):
 class initial_device_count(luigi.Task):
     start_date = luigi.Parameter(default='2022-09-01')
     end_date = luigi.Parameter(default='2022-09-30')
+    platform = luigi.Parameter(default='srn')
+    username = luigi.Parameter(default='devops')
+    password = luigi.Parameter(default='rzBRWfBMh6NaccS')
+    platform_secret = luigi.Parameter(default='o8bO#$nN0xbOssbER15/a6!ZXDWdkSAV7@PKCl^mb&rUpGReaxHLgiyie23$')
     def requires(self):
-        return filter_dates(start_date=self.start_date, end_date=self.end_date)
+        return filter_dates(start_date=self.start_date, end_date=self.end_date,platform=self.platform,username=self.username,password=self.password,platform_secret=self.platform_secret)
     
     def output(self):
         return luigi.LocalTarget("initial_device_count.txt")
@@ -164,8 +182,12 @@ class initial_device_count(luigi.Task):
 class format_report_data(luigi.Task):
     start_date = luigi.Parameter(default='2022-09-01')
     end_date = luigi.Parameter(default='2022-09-30')
+    platform = luigi.Parameter(default='srn')
+    username = luigi.Parameter(default='devops')
+    password = luigi.Parameter(default='rzBRWfBMh6NaccS')
+    platform_secret = luigi.Parameter(default='o8bO#$nN0xbOssbER15/a6!ZXDWdkSAV7@PKCl^mb&rUpGReaxHLgiyie23$')
     def requires(self):
-        return filter_dates(start_date=self.start_date, end_date=self.end_date) 
+        return filter_dates(start_date=self.start_date, end_date=self.end_date,platform=self.platform,username=self.username,password=self.password,platform_secret=self.platform_secret) 
 
     #outputs to a directory so we can have multiple outputs
     def output(self):
@@ -186,9 +208,12 @@ class format_report_data(luigi.Task):
 class leakage_report(luigi.Task):
     start_date = luigi.Parameter(default='2022-09-01')
     end_date = luigi.Parameter(default='2022-09-30') 
-
+    platform = luigi.Parameter(default='srn')
+    username = luigi.Parameter(default='devops')
+    password = luigi.Parameter(default='rzBRWfBMh6NaccS')
+    platform_secret = luigi.Parameter(default='o8bO#$nN0xbOssbER15/a6!ZXDWdkSAV7@PKCl^mb&rUpGReaxHLgiyie23$')
     def requires(self):
-        return format_report_data(start_date=self.start_date, end_date=self.end_date)
+        return format_report_data(start_date=self.start_date, end_date=self.end_date,platform=self.platform,username=self.username,password=self.password,platform_secret=self.platform_secret)
 
     def output(self):
         return b4t_directory_target("./reportfiles/leakage")
@@ -207,9 +232,12 @@ class leakage_report(luigi.Task):
 class usage_report(luigi.Task):
     start_date = luigi.Parameter(default='2022-09-01')
     end_date = luigi.Parameter(default='2022-09-30')
-
+    platform = luigi.Parameter(default='srn')
+    username = luigi.Parameter(default='devops')
+    password = luigi.Parameter(default='rzBRWfBMh6NaccS')
+    platform_secret = luigi.Parameter(default='o8bO#$nN0xbOssbER15/a6!ZXDWdkSAV7@PKCl^mb&rUpGReaxHLgiyie23$')
     def requires(self):
-        return format_report_data(start_date=self.start_date, end_date=self.end_date) 
+        return format_report_data(start_date=self.start_date, end_date=self.end_date,platform=self.platform,username=self.username,password=self.password,platform_secret=self.platform_secret) 
 
     def output(self):
         return b4t_directory_target("./reportfiles/usage") 
@@ -228,12 +256,15 @@ class usage_report(luigi.Task):
 class dropped_report(luigi.Task):
     start_date = luigi.Parameter(default='2022-09-01')
     end_date = luigi.Parameter(default='2022-09-30')
-
+    platform = luigi.Parameter(default='srn')
+    username = luigi.Parameter(default='devops')
+    password = luigi.Parameter(default='rzBRWfBMh6NaccS')
+    platform_secret = luigi.Parameter(default='o8bO#$nN0xbOssbER15/a6!ZXDWdkSAV7@PKCl^mb&rUpGReaxHLgiyie23$')
     def requires(self):
         return [
-            filter_dates(start_date=self.start_date, end_date=self.end_date),
-            initial_device_count(start_date=self.start_date, end_date=self.end_date),
-            usage_report(start_date=self.start_date, end_date=self.end_date)
+            filter_dates(start_date=self.start_date, end_date=self.end_date,platform=self.platform,username=self.username,password=self.password,platform_secret=self.platform_secret),
+            initial_device_count(start_date=self.start_date, end_date=self.end_date,platform=self.platform,username=self.username,password=self.password,platform_secret=self.platform_secret),
+            usage_report(start_date=self.start_date, end_date=self.end_date,platform=self.platform,username=self.username,password=self.password,platform_secret=self.platform_secret)
         ]
 
     def output(self):
@@ -262,11 +293,15 @@ class dropped_report(luigi.Task):
 class execute_reports(luigi.Task):
     start_date = luigi.Parameter(default='2022-09-01')
     end_date = luigi.Parameter(default='2022-09-30')
+    platform = luigi.Parameter(default='srn')
+    username = luigi.Parameter(default='devops')
+    password = luigi.Parameter(default='rzBRWfBMh6NaccS')
+    platform_secret = luigi.Parameter(default='o8bO#$nN0xbOssbER15/a6!ZXDWdkSAV7@PKCl^mb&rUpGReaxHLgiyie23$')
     def requires(self):
         return [
-            usage_report(start_date=self.start_date, end_date=self.end_date),
-            leakage_report(start_date=self.start_date, end_date=self.end_date),
-            dropped_report(start_date=self.start_date, end_date=self.end_date)
+            usage_report(start_date=self.start_date, end_date=self.end_date,platform=self.platform,username=self.username,password=self.password,platform_secret=self.platform_secret),
+            leakage_report(start_date=self.start_date, end_date=self.end_date,platform=self.platform,username=self.username,password=self.password,platform_secret=self.platform_secret),
+            dropped_report(start_date=self.start_date, end_date=self.end_date,platform=self.platform,username=self.username,password=self.password,platform_secret=self.platform_secret)
         ]
     
     def run(self):

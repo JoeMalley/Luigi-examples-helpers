@@ -15,6 +15,7 @@ class b4t_directory_target(luigi.LocalTarget):
         #    os.mkdir(path)
 
 class b4t_execute_shell_command(ExternalProgramTask):
+    date_ran = luigi.Parameter()
     command = luigi.Parameter(default="bash collect_data.sh srn devops rzBRWfBMh6NaccS 'o8bO#$nN0xbOssbER15/a6!ZXDWdkSAV7@PKCl^mb&rUpGReaxHLgiyie23$'")
     def program_args(self):
         commandArgs = shlex.split(self.command)
